@@ -34,6 +34,7 @@
 #define TSIZE 1048576
 #define SEED 1159241
 #define HASHFN bitwisehash
+#define SEP_CHAR '\1'
 
 typedef double real;
 typedef struct cooccur_rec {

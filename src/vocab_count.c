@@ -57,9 +57,13 @@ int CompareVocab(const void *a, const void *b) {
 /* Search hash table for given string, insert if not found */
 void hashinsert(HASHREC **ht, char *w) {
     HASHREC     *htmp, *hprv;
-    unsigned int hval = HASHFN(w, TSIZE, SEED);
+    unsigned int str_hash_value = HASHFN(w, TSIZE, SEED);
     
-    for (hprv = NULL, htmp = ht[hval]; htmp != NULL && scmp(htmp->word, w) != 0; hprv = htmp, htmp = htmp->next);
+    // htmp: current pointer, hprv: previous pointer
+    hprv = NULL, htmp = ht[str_hash_value];
+    while(htmp != NULL && scmp(htmp->word, w) != 0){ // searching for string in its bucket
+        hprv = htmp, htmp = htmp->next; // walking both pointers at once
+    }
     if (htmp == NULL) {
         htmp = (HASHREC *) malloc( sizeof(HASHREC) );
         htmp->word = (char *) malloc( strlen(w) + 1 );
@@ -67,27 +71,49 @@ void hashinsert(HASHREC **ht, char *w) {
         htmp->num = 1;
         htmp->next = NULL;
         if ( hprv==NULL )
-            ht[hval] = htmp;
+            ht[str_hash_value] = htmp;
         else
             hprv->next = htmp;
+        /* new records are not moved to front */
     }
     else {
-        /* new records are not moved to front */
         htmp->num++;
-        if (hprv != NULL) {
-            /* move to front on access */
+        if (hprv != NULL) { // isnt an empty list
+            /* moves to first position of linked list */
             hprv->next = htmp->next;
-            htmp->next = ht[hval];
-            ht[hval] = htmp;
+            htmp->next = ht[str_hash_value];
+            ht[str_hash_value] = htmp;
+        }
+    }
+    return;
+}
+
+/* Search and, if found, increment */
+void hashincrement(HASHREC **ht, char *w, int value) {
+    HASHREC     *htmp, *hprv;
+    unsigned int str_hash_value = HASHFN(w, TSIZE, SEED);
+    
+    // htmp: current pointer, hprv: previous pointer
+    hprv = NULL, htmp = ht[str_hash_value];
+    while(htmp != NULL && scmp(htmp->word, w) != 0){ // searching for string in its bucket
+        hprv = htmp, htmp = htmp->next; // walking both pointers at once
+    }
+    if (htmp != NULL) { // wont increment non existent entries
+        htmp->num += value;
+        if (hprv != NULL) { // isnt an empty list
+            /* moves to first position of linked list */
+            hprv->next = htmp->next;
+            htmp->next = ht[str_hash_value];
+            ht[str_hash_value] = htmp;
         }
     }
     return;
 }
 
 int get_counts() {
-    long long i = 0, j = 0, vocab_size = 12500;
+    long long i = 0, j = 0, k = 0, vocab_size = 12500;
     // char format[20];
-    char str[MAX_STRING_LENGTH + 1];
+    char str[MAX_STRING_LENGTH + 1], sub_str[MAX_STRING_LENGTH + 1];
     HASHREC **vocab_hash = inithashtable();
     HASHREC *htmp;
     VOCAB *vocab;
@@ -109,6 +135,27 @@ int get_counts() {
         if (((++i)%100000) == 0) if (verbose > 1) fprintf(stderr,"\033[11G%lld tokens.", i);
     }
     if (verbose > 1) fprintf(stderr, "\033[0GProcessed %lld tokens.\n", i);
+
+    for (i = 0; i < TSIZE; i++) { // increment subtokens from MWTs. bipartite DAG, no specific order is needed
+        htmp = vocab_hash[i];
+        while (htmp != NULL) {
+            if (strchr(htmp->word, SEP_CHAR) != NULL){
+                k = 0;
+                for (i = 0; htmp->word[i]; i++, k++) {
+                    if (htmp->word[i] == SEP_CHAR) {
+                        sub_str[k] = '\0';
+                        hashincrement(vocab_hash, sub_str, htmp->num);
+                        k = -1;
+                    }
+                    else {
+                        sub_str[k] = htmp->word[i];
+                    }
+                }
+            }
+            htmp = htmp->next;
+        }
+    }
+
     vocab = malloc(sizeof(VOCAB) * vocab_size);
     for (i = 0; i < TSIZE; i++) { // Migrate vocab to array
         htmp = vocab_hash[i];
