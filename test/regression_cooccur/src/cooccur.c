@@ -58,7 +58,7 @@ HASHREC *hashsearch(HASHREC **ht, char *w) {
     return(htmp);
 }
 
-/* Insert string in hash table, check for string duplicates which should be absent */
+/* Insert string in hash table, check for duplicates which should be absent */
 void hashinsert(HASHREC **ht, char *w, long long id) {
     HASHREC     *htmp, *hprv;
     unsigned int hval = HASHFN(w, TSIZE, SEED);
@@ -100,6 +100,7 @@ int compare_crec(const void *a, const void *b) {
     int c;
     if ( (c = ((CREC *) a)->word1 - ((CREC *) b)->word1) != 0) return c;
     else return (((CREC *) a)->word2 - ((CREC *) b)->word2);
+    
 }
 
 /* Check if two cooccurrence records are for the same two words */
@@ -218,106 +219,25 @@ int merge_files(int num) {
     return 0;
 }
 
-void free_resources(HASHREC** vocab_hash, CREC *cr, long long *lookup, real *bigram_table) {
+void free_resources(HASHREC** vocab_hash, CREC *cr, long long *lookup, 
+                    long long *history, real *bigram_table) {
     free_table(vocab_hash);
     free(cr);
     free(lookup);
+    free(history);
     free(bigram_table);
-}
-
-void count_occour(long long target_freq_rank, long long context_freq_rank, real cntxt_weight, long long *lookup, CREC *cr, long long *ind, real *bigram_table) {
-    if (verbose > 2) fprintf(stderr, "Adding cooccur between words %lld and %lld.\n", context_freq_rank, target_freq_rank);
-
-    if ( context_freq_rank < max_product / target_freq_rank ) { 
-        // Product is small enough to store in a full array
-        // Weight by inverse of distance between words if needed
-        bigram_table[lookup[context_freq_rank - 1] + target_freq_rank - 2] += cntxt_weight; 
-        if (symmetric > 0){
-            // If symmetric context is used, exchange roles of w2 and w1 (ie look at right context too)
-            bigram_table[lookup[target_freq_rank - 1] + context_freq_rank - 2] += cntxt_weight; 
-        }
-    }
-    else { 
-        // Entries in which the frequency product is too big are likely to be sparse
-        // These are probably two not-so-frequent words occouring together; it isnt efficient to keep this in bigram table given sparseness
-        // Store these entries in a temporary buffer to be sorted, merged (accumulated), and written to file when it gets full.
-        cr[*ind].word1 = context_freq_rank;
-        cr[*ind].word2 = target_freq_rank;
-        cr[*ind].val = cntxt_weight;
-        *ind = *ind + 1; // Keep track of how full temporary buffer is
-        if (symmetric > 0) { // Symmetric context, adds both ways
-            cr[*ind].word1 = target_freq_rank;
-            cr[*ind].word2 = context_freq_rank;
-            cr[*ind].val = cntxt_weight;
-            *ind = *ind + 1;
-        }
-    }
-}
-
-void count_context(char *str, char *sub_str, int j, char history[][MAX_STRING_LENGTH + 1], long long *lookup, CREC *cr, long long *ind, real *bigram_table, HASHREC** vocab_hash) {
-    long long w1, w2, k, l, i;
-    real cntxt_weight;
-    HASHREC *htmp1, *htmp2;
-
-    htmp1 = hashsearch(vocab_hash, str);
-    char *context_str;
-
-
-
-    if (htmp1 == NULL) { // Skip out-of-vocabulary words
-        if (verbose > 2) fprintf(stderr, "Not getting coocurs as word not in vocab\n");
-        // Adds to history anyway since subtokens may be used
-        strcpy(history[j % window_size], str);
-        return; 
-    }
-    w1 = htmp1->num; // Target word (frequency rank)
-    
-    // Iterate over all words to the left of target word, but not past beginning of line
-    // If token is phrase, iterates also over its subtokens (actually tokens)
-    for (k = j - 1; k >= ( (j > window_size) ? j - window_size : 0 ); k--) { 
-        cntxt_weight = distance_weighting ? (1.0/(real)(j-k)) : 1.0;
-
-        context_str = history[k % window_size]; // Context word
-
-        htmp2 = hashsearch(vocab_hash, context_str);
-        if (htmp2 != NULL) { // Process only words in vocabulary
-            w2 = htmp2->num; // Context word (frequency rank)
-            count_occour(w1, w2, cntxt_weight, lookup, cr, ind, bigram_table);
-        }
-        
-        // For each context_str subtoken, call count_occour if it isnt OOV
-        if (strchr(context_str, SEP_CHAR) != NULL) {
-            for (l = 0, i = 0; context_str[i]; i++, l++) {
-                if (context_str[i] == SEP_CHAR) {
-                    sub_str[l] = '\0';
-                    htmp2 = hashsearch(vocab_hash, sub_str);
-                    if (htmp2 != NULL) {
-                        w2 = htmp2->num;
-                        count_occour(w1, w2, cntxt_weight, lookup, cr, ind, bigram_table);
-                    }
-                    l = -1;
-                }
-                else {
-                    sub_str[l] = context_str[i];
-                }
-            }
-        }
-    }
-
-    // Target word is stored in circular buffer to become context word in the future
-    strcpy(history[j % window_size], str);
 }
 
 /* Collect word-word cooccurrence counts from input stream */
 int get_cooccurrence() {
     int flag, x, y, fidcounter = 1;
-    long long a, j = 0, id, counter = 0, ind = 0, vocab_size, *lookup = NULL;
+    long long a, j = 0, k, id, counter = 0, ind = 0, vocab_size, w1, w2, *lookup = NULL, *history = NULL;
     char format[20], filename[200], str[MAX_STRING_LENGTH + 1];
-    char history[window_size][MAX_STRING_LENGTH + 1], sub_str[MAX_STRING_LENGTH + 1];
     FILE *fid, *foverflow;
     real *bigram_table = NULL, r;
-    HASHREC **vocab_hash = inithashtable();
+    HASHREC *htmp, **vocab_hash = inithashtable();
     CREC *cr = malloc(sizeof(CREC) * (overflow_length + 1));
+    history = malloc(sizeof(long long) * window_size);
     
     fprintf(stderr, "COUNTING COOCCURRENCES\n");
     if (verbose > 0) {
@@ -332,15 +252,10 @@ int get_cooccurrence() {
     fid = fopen(vocab_file,"r");
     if (fid == NULL) { 
         log_file_loading_error("vocab file", vocab_file);
-        free_resources(vocab_hash, cr, lookup, bigram_table);
+        free_resources(vocab_hash, cr, lookup, history, bigram_table);
         return 1;
     }
-    while (fscanf(fid, format, str, &id) != EOF){
-        // Here id is not used: inserting vocab words into hash table with their frequency rank, j
-        // vocab_file is a list of (word, count) entries, sorted non-ascending by count
-        hashinsert(vocab_hash, str, ++j); 
-    }
-        
+    while (fscanf(fid, format, str, &id) != EOF) hashinsert(vocab_hash, str, ++j); // Here id is not used: inserting vocab words into hash table with their frequency rank, j
     fclose(fid);
     vocab_size = j;
     j = 0;
@@ -350,16 +265,10 @@ int get_cooccurrence() {
     lookup = (long long *)calloc( vocab_size + 1, sizeof(long long) );
     if (lookup == NULL) {
         fprintf(stderr, "Couldn't allocate memory!");
-        free_resources(vocab_hash, cr, lookup, bigram_table);
+        free_resources(vocab_hash, cr, lookup, history, bigram_table);
         return 1;
     }
     lookup[0] = 1;
-    // lookup[a]: lookup[a - 1] + min(max_product/a, vocab_size)
-    
-    // this value is an offset for the row in bigram table from freqrank a
-    // bigram table isnt a square matrix, some rows have a non-full length; 
-    // lookup keeps an accumulated sum for such lenghts
-    // higher max_product, more rare freqrank combinations we will see; more volatile memory needs to be used
     for (a = 1; a <= vocab_size; a++) {
         if ((lookup[a] = max_product / a) < vocab_size) lookup[a] += lookup[a-1];
         else lookup[a] = lookup[a-1] + vocab_size;
@@ -370,7 +279,7 @@ int get_cooccurrence() {
     bigram_table = (real *)calloc( lookup[a-1] , sizeof(real) );
     if (bigram_table == NULL) {
         fprintf(stderr, "Couldn't allocate memory!");
-        free_resources(vocab_hash, cr, lookup, bigram_table);
+        free_resources(vocab_hash, cr, lookup, history, bigram_table);
         return 1;
     }
     
@@ -409,10 +318,34 @@ int get_cooccurrence() {
             continue;
         }
         counter++;
-        count_context(str, sub_str, j, history, lookup, cr, &ind, bigram_table, vocab_hash);
-        if ((counter%100000) == 0){
-            if (verbose > 1) fprintf(stderr,"\033[19G%lld",counter);
+        if ((counter%100000) == 0) if (verbose > 1) fprintf(stderr,"\033[19G%lld",counter);
+        htmp = hashsearch(vocab_hash, str);
+        if (htmp == NULL) {
+            if (verbose > 2) fprintf(stderr, "Not getting coocurs as word not in vocab\n");
+            continue; // Skip out-of-vocabulary words
         }
+        w2 = htmp->num; // Target word (frequency rank)
+        for (k = j - 1; k >= ( (j > window_size) ? j - window_size : 0 ); k--) { // Iterate over all words to the left of target word, but not past beginning of line
+            w1 = history[k % window_size]; // Context word (frequency rank)
+            if (verbose > 2) fprintf(stderr, "Adding cooccur between words %lld and %lld.\n", w1, w2);
+            if ( w1 < max_product/w2 ) { // Product is small enough to store in a full array
+                bigram_table[lookup[w1-1] + w2 - 2] += distance_weighting ? 1.0/((real)(j-k)) : 1.0; // Weight by inverse of distance between words if needed
+                if (symmetric > 0) bigram_table[lookup[w2-1] + w1 - 2] += distance_weighting ? 1.0/((real)(j-k)) : 1.0; // If symmetric context is used, exchange roles of w2 and w1 (ie look at right context too)
+            }
+            else { // Product is too big, data is likely to be sparse. Store these entries in a temporary buffer to be sorted, merged (accumulated), and written to file when it gets full.
+                cr[ind].word1 = w1;
+                cr[ind].word2 = w2;
+                cr[ind].val = distance_weighting ? 1.0/((real)(j-k)) : 1.0;
+                ind++; // Keep track of how full temporary buffer is
+                if (symmetric > 0) { // Symmetric context
+                    cr[ind].word1 = w2;
+                    cr[ind].word2 = w1;
+                    cr[ind].val = distance_weighting ? 1.0/((real)(j-k)) : 1.0;
+                    ind++;
+                }
+            }
+        }
+        history[j % window_size] = w2; // Target word is stored in circular buffer to become context word in the future
         j++;
     }
     
@@ -431,7 +364,7 @@ int get_cooccurrence() {
             j = (long long) (0.75*log(vocab_size / x));
             if (verbose > 1) fprintf(stderr,".");
         } // log's to make it look (sort of) pretty
-        for (y = 1; y <= (lookup[x] - lookup[x-1]); y++) { //(lookup[x] - lookup[x-1]) size of xth row
+        for (y = 1; y <= (lookup[x] - lookup[x-1]); y++) {
             if ((r = bigram_table[lookup[x-1] - 2 + y]) != 0) {
                 fwrite(&x, sizeof(int), 1, fid);
                 fwrite(&y, sizeof(int), 1, fid);
@@ -443,7 +376,7 @@ int get_cooccurrence() {
     if (verbose > 1) fprintf(stderr,"%d files in total.\n",fidcounter + 1);
     fclose(fid);
     fclose(foverflow);
-    free_resources(vocab_hash, cr, lookup, bigram_table);
+    free_resources(vocab_hash, cr, lookup, history, bigram_table);
     return merge_files(fidcounter + 1); // Merge the sorted temporary files
 }
 
