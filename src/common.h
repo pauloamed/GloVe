@@ -33,6 +33,7 @@
 #define MAX_STRING_LENGTH 1000
 #define TSIZE 1048576
 #define SEED 1159241
+#define ARRAY_SIZE_INCREMENT 2500
 #define HASHFN bitwisehash
 #define SEP_CHAR '\1'
 
