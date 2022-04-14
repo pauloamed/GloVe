@@ -61,22 +61,22 @@ void hashinsert(HASHREC **ht, char *w) {
     
     // htmp: current pointer, hprv: previous pointer
     hprv = NULL, htmp = ht[str_hash_value];
-    while(htmp != NULL && scmp(htmp->word, w) != 0){ // searching for string in its bucket
+    while(htmp != NULL && scmp(htmp->word, w) != 0) { // searching for string in its bucket
         hprv = htmp, htmp = htmp->next; // walking both pointers at once
     }
-    if (htmp == NULL) {
+    if (htmp == NULL) { // string isnt in bucket, adding now
         htmp = (HASHREC *) malloc( sizeof(HASHREC) );
         htmp->word = (char *) malloc( strlen(w) + 1 );
         strcpy(htmp->word, w);
         htmp->num = 1;
         htmp->next = NULL;
-        if ( hprv==NULL )
+        if (hprv == NULL)
             ht[str_hash_value] = htmp;
         else
             hprv->next = htmp;
         /* new records are not moved to front */
     }
-    else {
+    else { // string is in bucket, increments counter and moves to front
         htmp->num++;
         if (hprv != NULL) { // isnt an empty list
             /* moves to first position of linked list */
@@ -136,19 +136,22 @@ int get_counts() {
     }
     if (verbose > 1) fprintf(stderr, "\033[0GProcessed %lld tokens.\n", i);
 
-    for (i = 0; i < TSIZE; i++) { // increment subtokens from MWTs. bipartite DAG, no specific order is needed
+    // increment occorences of subtokens from MWTs (separated by SEP_CHAR)
+    // bipartite DAG, no specific token processing order is needed
+    // if subtokens exists, increments counts; if it doesnt, skips
+    for (i = 0; i < TSIZE; i++) {
         htmp = vocab_hash[i];
         while (htmp != NULL) {
             if (strchr(htmp->word, SEP_CHAR) != NULL){
                 k = 0;
-                for (i = 0; htmp->word[i]; i++, k++) {
-                    if (htmp->word[i] == SEP_CHAR) {
+                for (j = 0; htmp->word[j]; j++, k++) {
+                    if (htmp->word[j] == SEP_CHAR) {
                         sub_str[k] = '\0';
                         hashincrement(vocab_hash, sub_str, htmp->num);
                         k = -1;
                     }
                     else {
-                        sub_str[k] = htmp->word[i];
+                        sub_str[k] = htmp->word[j];
                     }
                 }
             }
@@ -157,14 +160,14 @@ int get_counts() {
     }
 
     vocab = malloc(sizeof(VOCAB) * vocab_size);
-    for (i = 0; i < TSIZE; i++) { // Migrate vocab to array
+    for (i = 0, j = 0; i < TSIZE; i++) { // Migrate vocab to array
         htmp = vocab_hash[i];
         while (htmp != NULL) {
             vocab[j].word = htmp->word;
             vocab[j].count = htmp->num;
             j++;
             if (j>=vocab_size) {
-                vocab_size += 2500;
+                vocab_size += ARRAY_SIZE_INCREMENT;
                 vocab = (VOCAB *)realloc(vocab, sizeof(VOCAB) * vocab_size);
             }
             htmp = htmp->next;
