@@ -136,7 +136,7 @@ int get_counts() {
     }
     if (verbose > 1) fprintf(stderr, "\033[0GProcessed %lld tokens.\n", i);
 
-    // increment occorences of subtokens from MWTs (separated by SEP_CHAR)
+    // increment occorences of subtokens from phrases (separated by SEP_CHAR)
     // bipartite DAG, no specific token processing order is needed
     // if subtokens exists, increments counts; if it doesnt, skips
     for (i = 0; i < TSIZE; i++) {

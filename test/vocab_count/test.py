@@ -2,8 +2,8 @@ import random
 
 CORPUS_SIZE = 1000000
 TOKEN_VOCAB_SIZE = 10000
-MWT_VOCAB_SIZE = 500
-MAX_MWT_SIZE = 5
+PHRASE_VOCAB_SIZE = 500
+MAX_PHRASE_SIZE = 5
 CHANCE_LINE_BREAK = 50
 
 def get_tokens(num_tokens):
@@ -25,26 +25,26 @@ def get_random_token(tokens):
             else:
                 return x - 1
 
-def get_mwts(tokens, num_mwts):
-    mwts = set()
-    while len(mwts) < num_mwts:
-        mwt_size = random.randint(1, MAX_MWT_SIZE)
-        mwt = [get_random_token(tokens) for _ in range(mwt_size)]
-        mwts.add(tuple(mwt))
-    return list(mwts)
+def get_phrases(tokens, num_phrases):
+    phrases = set()
+    while len(phrases) < num_phrases:
+        phrase_size = random.randint(1, MAX_PHRASE_SIZE)
+        phrase = [get_random_token(tokens) for _ in range(phrase_size)]
+        phrases.add(tuple(phrase))
+    return list(phrases)
 
 
 tokens = get_tokens(TOKEN_VOCAB_SIZE)
-mwts = get_mwts(tokens, MWT_VOCAB_SIZE)
+phrases = get_phrases(tokens, PHRASE_VOCAB_SIZE)
 
 counter = dict()
 with open("tmp.txt", "w") as wf:
     for _ in range(CORPUS_SIZE):
         x = None
-        if random.randint(1, TOKEN_VOCAB_SIZE + MWT_VOCAB_SIZE) <= TOKEN_VOCAB_SIZE:
+        if random.randint(1, TOKEN_VOCAB_SIZE + PHRASE_VOCAB_SIZE) <= TOKEN_VOCAB_SIZE:
             x = get_random_token(tokens)
         else:
-            x = random.choice(mwts)
+            x = random.choice(phrases)
 
         if type(x) is int:
             x = str(x)
